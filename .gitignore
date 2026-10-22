@@ -1,0 +1,10 @@
+/__pycache__
+/codegen*
+/env
+/experiment*
+/minimal_example_closed_loop.py
+/minimal_example_ocp.py
+/minimal_example_sim.py
+/pendulum_model.py
+/pendulum_ocp.png
+/utils.py
