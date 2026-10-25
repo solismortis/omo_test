@@ -41,20 +41,41 @@ class Grid:
 
 grid = Grid(10, 10, 0.1)
 refpath = RefPath([
-    Point(0.5, 0.3),
-    Point(1.5, 0.8),
-    Point(2.6, 1.8),
-    Point(3.5, 3.2),
-    Point(4.2, 4.8),
-    Point(4.6, 6.0),
-    Point(5.5, 6.8),
-    Point(6.5, 7.3),
-    Point(7.5, 7.8),
-    Point(8.0, 8.0)])
+    Point(0.8, 0.8),
+    Point(1.3, 0.8),
+    Point(1.8, 0.82),
+    Point(2.3, 0.88),
+    Point(2.8, 1.0),
+    Point(3.2, 1.2),
+    Point(3.6, 1.5),
+    Point(3.9, 1.9),
+    Point(4.1, 2.4),
+    Point(4.3, 3.0),
+    Point(4.45, 3.7),
+    Point(4.55, 4.4),
+    Point(4.6, 5.0),
+    Point(4.65, 5.6),
+    Point(4.75, 6.2),
+    Point(4.95, 6.8),
+    Point(5.3, 7.3),
+    Point(5.8, 7.7),
+    Point(6.4, 8.0),
+    Point(7.0, 8.15),
+    Point(7.6, 8.3),
+    Point(8.1, 8.5),
+    Point(8.5, 8.75),
+    Point(8.8, 9.0),
+    Point(9.0, 9.25),
+    Point(9.15, 9.45),
+    Point(9.25, 9.6),
+    Point(9.32, 9.72),
+    Point(9.37, 9.82),
+    Point(9.4, 9.9),
+])
 
 circles = []
 for p in refpath.points:
-    circles.append(Circle(p.x, p.y, 1))
+    circles.append(Circle(p.x, p.y, random.uniform(0.7, 1)))
 
 
 def export_diff_drive_model():
@@ -86,6 +107,23 @@ def export_diff_drive_model():
     model.f_impl_expr = model.xdot - f_expl  # Implicit. Acados likes having both
 
     return model
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 fig, ax = plt.subplots()
