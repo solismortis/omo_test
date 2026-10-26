@@ -4,6 +4,8 @@
 Differential drive. The origin is at the bottom left. Meters
 """
 
+# TODO: Max 100 ms
+
 import math
 import random
 
@@ -142,7 +144,7 @@ print(ref_state)
 # Acados internally computes the step as Δt = Tf / N
 
 N = len(refpath.points) - 1   # = 29, so N+1 == 30 reference points
-Tf = 14.5
+Tf = 15
 
 def resample_reference(ref_points, circles, n_steps):
     """Linearly resample the reference path (and its circles) to n_steps+1
@@ -180,10 +182,11 @@ def resample_reference(ref_points, circles, n_steps):
     return X_ref, circles_rs
 
 
-# ---------------------------------------------------------------------------
 # Main solver
-# ---------------------------------------------------------------------------
 
+print('ref_state[0]')
+print(ref_state[0])
+print()
 x_start = np.array([0.8, 0.8, 0.0, 0.0])
 x_goal = np.array([9.4, 9.9, 0.5, np.pi / 4])
 
@@ -291,6 +294,8 @@ for k in range(N + 1):
     X[k, :] = solver.get(k, 'x')
 for k in range(N):
     U[k, :] = solver.get(k, 'u')
+
+
 
 # ---------------------------------------------------------------------------
 # Visualization
