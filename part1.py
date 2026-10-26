@@ -59,9 +59,9 @@ class RefPath:
 
 
 class Circle:
-    def __init__(self, x0, y0, r):
-        self.x0  = x0
-        self.y0 = y0
+    def __init__(self, x, y, r):
+        self.x  = x
+        self.y = y
         self.r = r
 
 
@@ -130,63 +130,23 @@ circles = []
 for p in refpath.points:
     circles.append(Circle(p.x, p.y, 1))
 
-ref_state = [[p.x for p in refpath.points],
-             [p.y for p in refpath.points],
-             v_ref,
-             ref_theta(refpath.points)]
-print(ref_state)
+x_ref = np.vstack([[p.x for p in refpath.points],
+                   [p.y for p in refpath.points],
+                   v_ref,
+                   ref_theta(refpath.points)])
 
+circles_rs = np.vstack([[c.x for c in circles],
+                        [c.y for c in circles],
+                        [c.r for c in circles]])
 
-# N = 29  # prediction horizon (also called the horizon length or number of shooting intervals
-# N has to be < number of circles (ref points). Otherwise, doesn't work. 
-# Tf = 20.0  # total horizon time. Has to align with N
+N = len(refpath.points) - 1  # prediction horizon (also called the horizon length or number of shooting intervals),
+# has to be < number of circles. TODO: What happens if more?
+Tf = 15  # total horizon time. Has to align with N
 # Acados needs Tf and the NLP needs N, and the relationship Δt = Tf/N is the thing that actually matters
 # Acados internally computes the step as Δt = Tf / N
 
-N = len(refpath.points) - 1   # = 29, so N+1 == 30 reference points
-Tf = 15
-
-def resample_reference(ref_points, circles, n_steps):
-    """Linearly resample the reference path (and its circles) to n_steps+1
-    samples so that each OCP stage k gets a reference and a bounding circle.
-    """
-    # Arc-length parameterization of the reference polyline
-    xs = np.array([p.x for p in ref_points], dtype=float)
-    ys = np.array([p.y for p in ref_points], dtype=float)
-    seg = np.hypot(np.diff(xs), np.diff(ys))
-    s = np.concatenate([[0.0], np.cumsum(seg)])
-    total = s[-1]
-
-    s_target = np.linspace(0.0, total, n_steps + 1)
-
-    x_ref = np.interp(s_target, s, xs)
-    y_ref = np.interp(s_target, s, ys)
-
-    # Resample theta and v from the precomputed lists in part1
-    thetas = np.array(ref_theta(ref_points), dtype=float)
-    v_arr = np.array(v_ref, dtype=float)
-    th_ref = np.interp(s_target, s, thetas)
-    v_ref_rs = np.interp(s_target, s, v_arr)
-
-    # Resample circle centers/radii
-    cx = np.array([c.x0 for c in circles], dtype=float)
-    cy = np.array([c.y0 for c in circles], dtype=float)
-    r = np.array([c.r for c in circles], dtype=float)
-    cx_rs = np.interp(s_target, s, cx)
-    cy_rs = np.interp(s_target, s, cy)
-    r_rs = np.interp(s_target, s, r)
-
-    # Pack into the (nx_ref, N+1) style array used later
-    X_ref = np.vstack([x_ref, y_ref, v_ref_rs, th_ref])       # (4, N+1)
-    circles_rs = np.vstack([cx_rs, cy_rs, r_rs])              # (3, N+1)
-    return X_ref, circles_rs
-
-
 # Main solver
 
-print('ref_state[0]')
-print(ref_state[0])
-print()
 x_start = np.array([0.8, 0.8, 0.0, 0.0])
 x_goal = np.array([9.4, 9.9, 0.5, np.pi / 4])
 
@@ -262,9 +222,6 @@ ocp.solver_options.nlp_solver_max_iter = 200
 
 ocp.code_gen_options.json_file = 'ciao_step1.json'
 
-# --- references & circles (resampled from part1 data) ---------------
-x_ref, circles_rs = resample_reference(refpath.points, circles, N)
-
 # --- build solver ---------------------------------------------------
 solver = AcadosOcpSolver(ocp, verbose=False)
 
@@ -309,7 +266,7 @@ ax.set_ylim(-1, grid.height + 1)
 
 # Original circles (from part1)
 for c in circles:
-    ax.add_patch(plt.Circle((c.x0, c.y0), c.r, color='olive',
+    ax.add_patch(plt.Circle((c.x, c.y), c.r, color='olive',
                             alpha=0.15, fill=True, lw=0.5))
 
 # Original reference polyline (from part1.refpath)
