@@ -1,0 +1,22 @@
+"""My manual plot. Not sure if still need it"""
+
+fig, ax = plt.subplots()
+
+for c in circles:
+    ax.add_patch(plt.Circle((c.x0, c.y0), radius=c.r, edgecolor=(0.592, 0.631, 0.043), fill=False, linewidth=3))
+
+x_coords = [p.x for p in refpath.points]
+y_coords = [p.y for p in refpath.points]
+ax.plot(x_coords, y_coords, color='black', linewidth=2)
+
+# Start and finish
+ax.text(refpath.points[0].x ,refpath.points[0].y, 'S', color='blue', fontsize=16, fontweight='bold', ha='center', va='center')
+ax.text(refpath.points[-1].x ,refpath.points[-1].y, 'G', color='green', fontsize=16, fontweight='bold', ha='center', va='center')
+
+ax.set_aspect('equal', adjustable='datalim')
+ax.autoscale_view()
+ax.margins(0.05)
+ax.autoscale_view()
+plt.show()
+
+
