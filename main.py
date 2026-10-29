@@ -131,12 +131,7 @@ def obstacle_gradient(point, obstacle_centers):
 def max_free_ball_center(path_point, obstacle_centers, obstacle_radius,
                          step_init=0.05, step_grow=1.6,
                          max_step=50.0, n_dirs=8, tol=1e-4):
-    """Grow the maximal free ball around a path_point.
-
-    Constraints enforced:
-        radius(c) = dist(c, obstacles) - obstacle_radius  > 0
-        ||c - path_point|| <= radius(c) (original center stays inside the ball)
-    """
+    """Grow the maximal free ball around a path_point"""
     base = np.array(path_point, dtype=float)
 
     def ball_radius(c):
@@ -299,12 +294,8 @@ def build_and_solve_ocp(x_ref, balls, x_start, x_goal, N, Tf, circle_safety_marg
     ocp.constraints.x0 = x_start
 
     ocp.solver_options.tf = Tf
-    ocp.solver_options.qp_solver = 'PARTIAL_CONDENSING_HPIPM'
-    ocp.solver_options.hessian_approx = 'GAUSS_NEWTON'
-    ocp.solver_options.integrator_type = 'ERK'
-    ocp.solver_options.nlp_solver_type = 'SQP'
-    ocp.solver_options.nlp_solver_max_iter = 200
-    ocp.code_gen_options.json_file = 'ciao_combined.json'
+    ocp.solver_options.integrator_type = 'ERK'  # Recommended for our task
+    ocp.solver_options.nlp_solver_type = 'SQP'  # Recommended for our task
 
     solver = AcadosOcpSolver(ocp, verbose=False)
 
@@ -409,7 +400,7 @@ def plot_result(grid, start, goal, path_astar, densified, balls, X_opt=None,
 
 def main(seed=None, rows=10, cols=10, obstacle_prob=0.2,
                  spacing=0.33, obstacle_radius=0.71,
-                 max_horizon=40, v_nominal=1.0):
+                 v_nominal=1.0):
     random.seed(seed)
     np.random.seed(seed)
 
@@ -438,18 +429,15 @@ def main(seed=None, rows=10, cols=10, obstacle_prob=0.2,
 
     balls = grow_free_balls(densified, obstacle_centers, obstacle_radius=obstacle_radius)
 
-    # ---- subsample to fit the OCP horizon --------------------------------
-    N_total = len(densified) - 1
-    N = min(N_total, max_horizon)
+    # ---- build the OCP on the full densified path ------------------------
+    N = len(densified) - 1
     if N < 4:
-        print(f'  seed={seed}: path too short for OCP ({N_total} intervals), skipping')
+        print(f'  seed={seed}: path too short for OCP ({N} intervals), skipping')
         return None
 
-    idx = np.linspace(0, len(densified) - 1, N + 1).round().astype(int)
-    ref_pts = [densified[i] for i in idx]
-    ref_balls = [balls[i] for i in idx]
+    ref_pts = densified
+    ref_balls = balls
 
-    # reference speed: keep v * Tf / N ≈ spacing * (N_total / N) so it's consistent
     seg_lens = [np.hypot(ref_pts[i + 1][0] - ref_pts[i][0],
                          ref_pts[i + 1][1] - ref_pts[i][1]) for i in range(N)]
     Tf = max(5.0, sum(seg_lens) / v_nominal)
