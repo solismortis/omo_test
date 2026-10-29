@@ -2,35 +2,35 @@
 Differential drive. The origin is at the bottom left. We use meters
 We basically ignore the CIAO* paper for now, as it mostly adds different norms (while L2 is the optimal one anyway),
 works with complex-form robots (too much trouble for this task). We also do offline (not MPC), cause brain already hurts
-(offline is for static env and we see the entire path to the goal (unless we truncate), MPC is for IRL robot control).
+(note for self: offline is for static env and we see the entire path to the goal (unless we truncate), MPC is for IRL robot control).
 
-Using A* for ref_path. For A* we reduce grid resolution and only use 4 movement directions to make sure the robot can fit
-(otherwise, A* slips in between 2 cells adjacent diagonally like the robot is a dot)
+Using A* for ref_path. For A* we "reduce" grid resolution and only use 4 movement directions to make sure the robot can fit
+(otherwise, A* slips in between 2 cells adjacent diagonally like the robot is a dot).
 
-We receive a grid, put random obstacles and convert grid borders into wall obstacles,
+We receive grid dimensions, put random obstacles and convert grid borders into wall obstacles,
 then run A* and put intermediary points in between what A* returns (otherwise generated circles are not dense enough),
 then we grow our circles (free balls), then we do Acados magic and plot everything.
 """
 
-import math
 import heapq
+import math
 import random
 
 from acados_template import AcadosOcp, AcadosOcpSolver, AcadosModel
 import casadi as ca
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from shapely.geometry import Point
 from shapely.ops import unary_union
 
 
 def heuristic(a, b):
-    """Manhattan distance."""
+    """Manhattan distance for A*"""
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
 def a_star(grid, start, goal):
-    """4 directions. If we try using 8, A* will slip in between obstacles like our robot is a dot"""
+    """4 directions. If we try using 8, A* will slip in between obstacles like our robot has no width."""
     # TODO: Make A* return "stairs" for diagonal paths. Will prob be better for CIAO
     rows = len(grid)
     cols = len(grid[0])
@@ -91,7 +91,8 @@ def random_grid(rows, cols, obstacle_prob=0.2):
              for _ in range(cols)] for _ in range(rows)]
 
 
-def densify_path(path, spacing):
+def densify_path(path, dense_spacing):
+    """Adds dots in between what A* returns"""
     dense = [path[0]]
     for p, q in zip(path, path[1:]):
         px, py = p
@@ -99,7 +100,7 @@ def densify_path(path, spacing):
         seg_len = np.hypot(qx - px, qy - py)
         if seg_len == 0:
             continue
-        n_steps = int(np.ceil(seg_len / spacing))
+        n_steps = int(np.ceil(seg_len / dense_spacing))
         for k in range(1, n_steps + 1):
             t = k / n_steps
             x = px + t * (qx - px)
@@ -324,10 +325,6 @@ def build_and_solve_ocp(x_ref, balls, x_start, x_goal, N, Tf, circle_safety_marg
     return X, U, status
 
 
-# =============================================================================
-# PART 3 — VISUALISATION
-# =============================================================================
-
 def plot_result(grid, start, goal, path_astar, densified, balls, X_opt=None,
                 title="", obstacle_radius=0.71):
     rows, cols = len(grid), len(grid[0])
@@ -380,7 +377,7 @@ def plot_result(grid, start, goal, path_astar, densified, balls, X_opt=None,
     ax.plot(xs, ys, '-', color=(0.282, 0.322, 0.329), lw=2, label='A*', zorder=4)
     ax.plot(xs, ys, 'o', color=(0.282, 0.322, 0.329), ms=3, zorder=4)
 
-    # optimized trajectory
+    # Optimized trajectory
     if X_opt is not None:
         ax.plot(X_opt[:, 0], X_opt[:, 1], 'g-', lw=2.5, label='CIAO', zorder=5)
 
@@ -394,30 +391,23 @@ def plot_result(grid, start, goal, path_astar, densified, balls, X_opt=None,
     plt.tight_layout()
 
 
-# =============================================================================
-# PART 4 — ONE FULL PIPELINE RUN
-# =============================================================================
-
-def main(seed=None, rows=10, cols=10, obstacle_prob=0.2,
-                 spacing=0.33, obstacle_radius=0.71,
-                 v_nominal=1.0):
-    random.seed(seed)
-    np.random.seed(seed)
-
+def main(rows=10, cols=10, obstacle_prob=0.2, dense_spacing=0.33, obstacle_radius=0.71, v_nominal=1.0):
     start = (1, 1)
     goal = (9, 9)
-    grid = random_grid(rows, cols, obstacle_prob=obstacle_prob)
-    grid[start[1]][start[0]] = 0
-    grid[goal[1]][goal[0]] = 0
 
-    path = a_star(grid, start, goal)
-    if path is None:
-        print(f'  seed={seed}: no A* path, skipping')
-        return None
+    # Loop until there is a grid with a path
+    while True:
+        grid = random_grid(rows, cols, obstacle_prob=obstacle_prob)
+        grid[start[1]][start[0]] = 0
+        grid[goal[1]][goal[0]] = 0
+        path = a_star(grid, start, goal)
+        if not path:
+            print('No path. Regenerating grid')
+        else:
+            break
 
-    densified = densify_path(path, spacing=spacing)
+    densified = densify_path(path, dense_spacing=dense_spacing)
 
-    # obstacles for free-ball growth: grid obstacles + wall pseudo-obstacles
     obstacle_centers = [(x, y) for y in range(rows) for x in range(cols)
                         if grid[y][x] == 1]
     for x in range(cols + 1):
@@ -429,11 +419,7 @@ def main(seed=None, rows=10, cols=10, obstacle_prob=0.2,
 
     balls = grow_free_balls(densified, obstacle_centers, obstacle_radius=obstacle_radius)
 
-    # ---- build the OCP on the full densified path ------------------------
-    N = len(densified) - 1
-    if N < 4:
-        print(f'  seed={seed}: path too short for OCP ({N} intervals), skipping')
-        return None
+    N = len(densified) - 1  # Horizon
 
     ref_pts = densified
     ref_balls = balls
@@ -455,13 +441,11 @@ def main(seed=None, rows=10, cols=10, obstacle_prob=0.2,
     X, U, status = build_and_solve_ocp(x_ref, ref_balls, x_start, x_goal,
                                        N, Tf, circle_safety_margin=0.0)
 
-    plot_result(grid, start, goal, path, densified, balls, X_opt=X,
-                title=f'seed={seed}, N={N}, status={status}',
-                obstacle_radius=obstacle_radius)
+    plot_result(grid, start, goal, path, densified, balls, X_opt=X, obstacle_radius=obstacle_radius)
     plt.show()
 
-    return dict(grid=grid, path=path, densified=densified, balls=balls,
-                X=X, U=U, status=status, N=N, Tf=Tf)
+    return True
 
 
-main(seed=None)
+if __name__ == "__main__":
+    main()
