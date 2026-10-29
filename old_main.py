@@ -2,9 +2,16 @@
 когда параметры ограничивающих кругов уже известны.
 
 Differential drive. The origin is at the bottom left. Meters
+We basically ignore the CIAO* paper for now, as it mostly adds different norms (while L2 is the optimal one),
+works with complex-form robots (too much trouble for now). We also do offline (not MPC), cause brain already hurts
+(offline is for static env and we see the entire path to the goal, MPC is for IRL robot control).
+
+Using A* for ref_path. For A* we reduce grid resolution and only use 4 movement directions to make sure the robot can fit
+(otherwise, A* slips in between 2 cells adjacent diagonally like the robot is a dot)
 """
 
 # TODO: Max 100 ms
+# TODO: v being a const is not great
 
 import math
 import random
@@ -73,6 +80,7 @@ class Grid:
 
 
 grid = Grid(10, 10, 0.1)
+# 30 hand-crafted points
 refpath = refpath = RefPath([
     Point(0.8, 0.8),
     Point(1.2, 0.8),
@@ -140,30 +148,31 @@ circles_rs = np.vstack([[c.x for c in circles],
                         [c.r for c in circles]])
 
 N = len(refpath.points) - 1  # prediction horizon (also called the horizon length or number of shooting intervals),
-# has to be < number of circles. TODO: What happens if more?
+# has to be < number of circles. So far, the only workable N is a bit lower than number of points, can't go too low, can't go 1 more
+
 Tf = 15  # total horizon time. Has to align with N
 # Acados needs Tf and the NLP needs N, and the relationship Δt = Tf/N is the thing that actually matters
 # Acados internally computes the step as Δt = Tf / N
 
 # Main solver
 
-x_start = np.array([0.8, 0.8, 0.0, 0.0])
-x_goal = np.array([9.4, 9.9, 0.5, np.pi / 4])
+x_start = np.array([x_ref[0][0], x_ref[1][0], x_ref[2][0], x_ref[3][0]])
+x_goal = np.array([x_ref[0][-1], x_ref[1][-1], x_ref[2][-1], x_ref[3][-1]])
 
 model = export_diff_drive_model()
-ocp = AcadosOcp()
+ocp = AcadosOcp()  # Optimal control problem
 ocp.model = model
 
-nx = model.x.rows()
-nu = model.u.rows()
-
-# --- dims ------------------------------------------------------------
+# Dimensions
+nx = model.x.rows()  # State vector
+nu = model.u.rows()  # Control vector
 ocp.solver_options.N_horizon = N
-np_param = 7           # [xref, yref, thref, vref, cx, cy, r]
+np_param = 7  # [xref, yref, thref, vref, cx, cy, r]
 ocp.dims.np = np_param
 ocp.parameter_values = np.zeros(np_param)
 
-# --- cost ------------------------------------------------------------
+# Cost
+# np.diag() creates a 2D matrix with specified values on the diagonal
 W_x = np.diag([10.0, 10.0, 1.0, 1.0])
 W_u = np.diag([0.1, 0.1])
 W_xe = np.diag([100.0, 100.0, 10.0, 10.0])
@@ -184,7 +193,7 @@ ocp.cost.Vx_e = np.eye(nx)
 p_sym = ca.SX.sym('p', np_param)
 ocp.model.p = p_sym
 
-# CIAO constraint (per-stage): (x-cx)^2 + (y-cy)^2 <= r^2
+# CIAO constraint: (x-cx)^2 + (y-cy)^2 <= r^2
 x_sym = ocp.model.x
 dx = x_sym[0] - p_sym[4]
 dy = x_sym[1] - p_sym[5]
@@ -192,7 +201,7 @@ ocp.model.con_h_expr = ca.vertcat(dx * dx + dy * dy - p_sym[6] * p_sym[6])
 ocp.constraints.lh = np.array([-1e9])
 ocp.constraints.uh = np.array([0.0])
 
-# --- initial state --------------------------------------------------
+# Initial state
 ocp.constraints.x0 = x_start
 
 # --- control bounds -------------------------------------------------
@@ -212,7 +221,6 @@ tol = np.array([1.0, 1.0, 0.5, 0.5])
 ocp.constraints.lh_e = -tol
 ocp.constraints.uh_e = tol
 
-# --- solver options -------------------------------------------------
 ocp.solver_options.tf = Tf
 ocp.solver_options.qp_solver = 'PARTIAL_CONDENSING_HPIPM'
 ocp.solver_options.hessian_approx = 'GAUSS_NEWTON'
@@ -222,7 +230,6 @@ ocp.solver_options.nlp_solver_max_iter = 200
 
 ocp.code_gen_options.json_file = 'ciao_step1.json'
 
-# --- build solver ---------------------------------------------------
 solver = AcadosOcpSolver(ocp, verbose=False)
 
 # --- feed parameters, yrefs, initial guess --------------------------
@@ -254,31 +261,25 @@ for k in range(N):
 
 
 
-# ---------------------------------------------------------------------------
 # Visualization
-# ---------------------------------------------------------------------------
 
 fig, ax = plt.subplots(figsize=(7, 7))
 
-# Grid boundary (from part1.Grid)
 ax.set_xlim(-1, grid.width + 1)
 ax.set_ylim(-1, grid.height + 1)
 
-# Original circles (from part1)
 for c in circles:
-    ax.add_patch(plt.Circle((c.x, c.y), c.r, color='olive',
-                            alpha=0.15, fill=True, lw=0.5))
+    ax.add_patch(plt.Circle((c.x, c.y), c.r, color='olive', alpha=0.15, fill=True, lw=0.5))
 
-# Original reference polyline (from part1.refpath)
+ax.plot(X[:, 0], X[:, 1], 'g-', lw=2, label='CIAO')
+
 xs_ref = [p.x for p in refpath.points]
 ys_ref = [p.y for p in refpath.points]
 ax.plot(xs_ref, ys_ref, 'k--', lw=1, label='Reference path')
 
-# Optimized trajectory
-ax.plot(X[:, 0], X[:, 1], 'g-', lw=2, label='CIAO (acados)')
-
-ax.plot(x_start[0], x_start[1], 'bo', ms=8, label='Start')
-ax.plot(x_goal[0], x_goal[1], 'ro', ms=8, label='Goal')
+# Start and finish
+ax.text(refpath.points[0].x ,refpath.points[0].y, 'S', color='blue', fontsize=16, fontweight='bold', ha='center', va='center')
+ax.text(refpath.points[-1].x ,refpath.points[-1].y, 'G', color='blue', fontsize=16, fontweight='bold', ha='center', va='center')
 
 ax.set_aspect('equal')
 ax.grid()
